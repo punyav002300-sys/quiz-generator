@@ -1,158 +1,78 @@
-# AI-Powered Quiz Generator
+# 02 - RAG Chatbot
 
-An AI-powered web application that automatically analyses uploaded documents
-and generates multiple-choice questions (MCQs) — each with 4 answer options
-and the correct answer — to reduce the manual effort of creating candidate
-assessments.
+A web application where users upload PDFs and ask questions. The AI answers
+using **retrieved context from your documents** (RAG) combined with the
+**general knowledge of a local LLM**.
 
-**Tech stack (as required by the assignment):**
-- **Ollama LLM** — local LLM inference (generation + embeddings)
-- **LangChain** — document loading, chunking, retrieval, prompting
-- **FAISS** — vector database for semantic search over document chunks
-- **Flask + HTML/CSS/JS** — web application and UI
+**Stack:** Ollama (LLM) · LangChain (orchestration) · FAISS (vector search) ·
+Flask + HTML/CSS/JS (web app)
 
----
+## 1. Prerequisites
 
-## 1. Problem Statement
+- Python 3.10+
+- [Ollama](https://ollama.com) installed and running locally
 
-Manually writing candidate assessment questions from training material or
-reference documents is slow and inconsistent. This tool lets a recruiter or
-trainer upload a document (PDF / DOCX / TXT), and automatically produces a
-configurable multiple-choice quiz — with correct answers pre-marked — grounded
-strictly in the content of that document.
+## 2. Pull the models Ollama will use
 
-## 2. Architecture
-
-```
-                 ┌────────────────────┐
-   User uploads  │                    │
-   PDF/DOCX/TXT  │   Flask Backend    │
-  ───────────────▶     (app.py)       │
-                 │                    │
-                 └─────────┬──────────┘
-                           │
-                 1. Load & chunk document
-                    (LangChain loaders +
-                     RecursiveCharacterTextSplitter)
-                           │
-                           ▼
-                 2. Embed chunks
-                    (OllamaEmbeddings)
-                           │
-                           ▼
-                 3. Store in FAISS vector DB
-                    (persisted per session)
-                           │
-        User requests quiz (n questions,
-        difficulty, optional topic)
-                           │
-                           ▼
-                 4. Retrieve representative
-                    context chunks from FAISS
-                           │
-                           ▼
-                 5. Prompt Ollama LLM (ChatOllama)
-                    to generate MCQs as strict JSON
-                           │
-                           ▼
-                 6. Validate & return quiz JSON
-                           │
-                           ▼
-                 7. Render interactive quiz in
-                    browser, auto-graded client-side
-```
-
-### Data flow summary
-
-| Stage | Component | File |
-|---|---|---|
-| Document loading | `PyPDFLoader` / `TextLoader` / `Docx2txtLoader` | `quiz_engine.py` |
-| Chunking | `RecursiveCharacterTextSplitter` | `quiz_engine.py` |
-| Embeddings | `OllamaEmbeddings` | `quiz_engine.py` |
-| Vector store | `FAISS` (saved to `/vectorstore/<session_id>`) | `quiz_engine.py` |
-| MCQ generation | `ChatOllama` + structured JSON prompt | `quiz_engine.py` |
-| API endpoints | `/upload`, `/generate_quiz` | `app.py` |
-| UI | Upload form → config form → interactive quiz | `templates/index.html`, `static/` |
-
-## 3. Project Structure
-
-```
-quiz-generator/
-├── app.py                # Flask routes: /, /upload, /generate_quiz, /health
-├── quiz_engine.py         # Document processing + FAISS + MCQ generation logic
-├── requirements.txt
-├── README.md
-├── templates/
-│   └── index.html         # 3-step UI: upload -> configure -> take quiz
-├── static/
-│   ├── style.css
-│   └── script.js           # Upload, generation, rendering, client-side scoring
-├── uploads/                # Uploaded source documents (created at runtime)
-└── vectorstore/            # Per-session FAISS indexes (created at runtime)
-```
-
-## 4. Setup & Run Instructions
-
-### Step 1 — Install Ollama and pull a model
 ```bash
-# Install Ollama: https://ollama.com/download
 ollama pull llama3
-ollama serve        # starts the local LLM server on http://localhost:11434
+ollama pull nomic-embed-text
 ```
 
-### Step 2 — Install Python dependencies
+Make sure Ollama is running in the background (`ollama serve`, or it may
+already run automatically after install).
+
+## 3. Set up the Python environment
+
 ```bash
-cd quiz-generator
+cd rag-chatbot
 python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
+source venv/bin/activate        # on Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Step 3 — Run the app
+## 4. Run the app
+
 ```bash
 python app.py
 ```
-Then open **http://localhost:5000** in your browser.
 
-### Optional environment variables
-| Variable | Default | Purpose |
-|---|---|---|
-| `OLLAMA_MODEL` | `llama3` | Which pulled Ollama model to use for embeddings + generation |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server address |
-| `SECRET_KEY` | dev key | Flask session secret (set a real one in production) |
+Open your browser at **http://127.0.0.1:5000**
 
-## 5. How to Use
+## 5. How to use it
 
-1. **Upload** a PDF, DOCX, or TXT document. The backend extracts the text,
-   splits it into overlapping chunks, embeds them, and stores them in a
-   FAISS index.
-2. **Configure** the quiz: number of questions (1–20), difficulty
-   (easy/medium/hard), and an optional topic focus to bias retrieval toward
-   a specific section of the document.
-3. **Generate** — the app retrieves representative chunks from FAISS and
-   prompts the LLM to write strictly document-grounded MCQs as JSON.
-4. **Take the quiz** — select an answer per question and click *Submit
-   Answers* to see your score, with correct/incorrect options highlighted.
+1. Click "Choose files", select one or more PDFs, click **Upload & Process**.
+   The app loads the PDFs, splits them into chunks, embeds them with
+   `nomic-embed-text`, and stores the vectors in a local FAISS index.
+2. Type a question in the chat box and hit **Ask**.
+3. The app retrieves the most relevant chunks from your PDFs and asks the
+   `llama3` model (via Ollama) to answer using that context, falling back to
+   its own general knowledge when the documents don't fully cover it.
+4. Answers show the source pages used, so you can verify them.
+5. Click **Reset session** to clear the current PDFs and start over.
 
-## 6. Key Design Decisions
+## Project structure
 
-- **Session-scoped vector stores**: each upload gets its own FAISS index on
-  disk keyed by a UUID, so multiple users/documents don't collide.
-- **Grounded generation**: the LLM prompt explicitly restricts question
-  writing to the supplied CONTEXT only, reducing hallucinated questions.
-- **Structured JSON output**: the model is asked to return strict JSON
-  matching a fixed schema; a regex-based extractor tolerates stray
-  markdown fences some models add, and malformed questions are filtered
-  out before being returned to the client.
-- **Client-side grading**: since the correct answers are already known
-  (returned with the quiz), scoring is done instantly in the browser
-  without an extra round trip.
+```
+rag-chatbot/
+├── app.py                # Flask routes + LangChain/FAISS/Ollama logic
+├── requirements.txt
+├── templates/
+│   └── index.html        # Chat UI
+├── static/
+│   ├── style.css
+│   └── script.js
+├── uploads/               # Uploaded PDFs get stored here (per session)
+└── vectorstore/           # Saved FAISS indexes (per session), persisted to disk
+```
 
-## 7. Possible Extensions
+## Notes / things you may want to change for your submission
 
-- Persist sessions/quizzes in a real database (SQLite/PostgreSQL) instead
-  of in-memory dict + on-disk FAISS folders.
-- Add authentication so recruiters can manage multiple candidate assessments.
-- Export generated quizzes to PDF/CSV.
-- Support multi-document uploads merged into a single vector store.
-- Add explanations for each correct answer (extend the JSON schema).
+- The chat model defaults to `llama3` and embeddings to `nomic-embed-text`.
+  You can swap models by setting the environment variables `OLLAMA_MODEL`
+  and `OLLAMA_EMBED_MODEL` before running, or by editing the defaults near
+  the top of `app.py`.
+- Each browser session gets its own FAISS index (via a Flask session
+  cookie), so multiple users won't mix up documents.
+- If you get a connection error, double check `ollama serve` is running and
+  that you've pulled both models (step 2).
