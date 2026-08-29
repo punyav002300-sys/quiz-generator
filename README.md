@@ -1,78 +1,113 @@
-# 02 - RAG Chatbot
+# AI Study Assistant — CrewAI & Pinecone
 
-A web application where users upload PDFs and ask questions. The AI answers
-using **retrieved context from your documents** (RAG) combined with the
-**general knowledge of a local LLM**.
+An AI-powered study assistant that lets a user upload study material (PDF)
+and ask questions about it. Three specialized CrewAI agents retrieve,
+analyze, and verify the answer before it's shown to the user.
 
-**Stack:** Ollama (LLM) · LangChain (orchestration) · FAISS (vector search) ·
-Flask + HTML/CSS/JS (web app)
+## Architecture
 
-## 1. Prerequisites
+```
+User uploads PDF
+    ↓
+Extract document text        (utils.py — pypdf)
+    ↓
+Generate embeddings          (vector_store.py — sentence-transformers)
+    ↓
+Pinecone                     (vector_store.py — stores + semantic search)
 
-- Python 3.10+
-- [Ollama](https://ollama.com) installed and running locally
-
-## 2. Pull the models Ollama will use
-
-```bash
-ollama pull llama3
-ollama pull nomic-embed-text
+                              CrewAI Crew (agents.py)
+                              Research Agent
+                                  ↓
+                              Analysis Agent
+                                  ↓
+                              Review Agent
+                                  ↓
+                          Final Answer → User
 ```
 
-Make sure Ollama is running in the background (`ollama serve`, or it may
-already run automatically after install).
+## Agent roles
 
-## 3. Set up the Python environment
+| Agent | Responsibility |
+|---|---|
+| **Research Agent** | Searches the knowledge base for relevant information |
+| **Analysis Agent** | Analyzes the retrieved information and drafts an answer |
+| **Review Agent** | Checks whether the answer is supported by the retrieved content |
 
-```bash
-cd rag-chatbot
-python -m venv venv
-source venv/bin/activate        # on Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+## Tech stack
 
-## 4. Run the app
-
-```bash
-python app.py
-```
-
-Open your browser at **http://127.0.0.1:5000**
-
-## 5. How to use it
-
-1. Click "Choose files", select one or more PDFs, click **Upload & Process**.
-   The app loads the PDFs, splits them into chunks, embeds them with
-   `nomic-embed-text`, and stores the vectors in a local FAISS index.
-2. Type a question in the chat box and hit **Ask**.
-3. The app retrieves the most relevant chunks from your PDFs and asks the
-   `llama3` model (via Ollama) to answer using that context, falling back to
-   its own general knowledge when the documents don't fully cover it.
-4. Answers show the source pages used, so you can verify them.
-5. Click **Reset session** to clear the current PDFs and start over.
+- **Ollama LLM** — local LLM for the CrewAI agents
+- **CrewAI** — manages agent roles, tasks, and communication
+- **LangChain** — LLM wrapper (`langchain_community.llms.Ollama`)
+- **Pinecone** — stores document embeddings and performs semantic search
+- **Sentence-Transformers** — generates embeddings locally
+- **Flask** — web server and API
+- **HTML & CSS** — front end
+- **Python** — everything glues together
 
 ## Project structure
 
 ```
-rag-chatbot/
-├── app.py                # Flask routes + LangChain/FAISS/Ollama logic
-├── requirements.txt
+ai_study_assistant/
+├── app.py              # Flask routes: /, /upload, /ask, /health
+├── agents.py           # CrewAI crew: Research, Analysis, Review agents
+├── vector_store.py      # Pinecone storage + semantic search
+├── utils.py             # PDF text extraction + chunking
 ├── templates/
-│   └── index.html        # Chat UI
+│   └── index.html       # Upload + ask UI
 ├── static/
-│   ├── style.css
-│   └── script.js
-├── uploads/               # Uploaded PDFs get stored here (per session)
-└── vectorstore/           # Saved FAISS indexes (per session), persisted to disk
+│   └── style.css
+├── requirements.txt
+├── .env.example
+└── README.md
 ```
 
-## Notes / things you may want to change for your submission
+## Setup
 
-- The chat model defaults to `llama3` and embeddings to `nomic-embed-text`.
-  You can swap models by setting the environment variables `OLLAMA_MODEL`
-  and `OLLAMA_EMBED_MODEL` before running, or by editing the defaults near
-  the top of `app.py`.
-- Each browser session gets its own FAISS index (via a Flask session
-  cookie), so multiple users won't mix up documents.
-- If you get a connection error, double check `ollama serve` is running and
-  that you've pulled both models (step 2).
+1. **Install dependencies**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate   # Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+
+2. **Install and run Ollama** (for the LLM)
+   ```bash
+   # https://ollama.com
+   ollama pull llama3
+   ollama serve
+   ```
+
+3. **Get a Pinecone API key**
+   - Sign up at https://www.pinecone.io
+   - Create an API key, then copy `.env.example` to `.env` and fill it in:
+     ```bash
+     cp .env.example .env
+     ```
+
+4. **Run the app**
+   ```bash
+   python app.py
+   ```
+   Visit `http://localhost:5000`.
+
+## How it works
+
+1. **Upload** — a PDF is uploaded, text is extracted page by page, split
+   into overlapping word chunks, embedded with `all-MiniLM-L6-v2`, and
+   upserted into a Pinecone index.
+2. **Ask** — a question is embedded and used to query Pinecone for the
+   top-k most similar chunks.
+3. **Crew pipeline**:
+   - *Research Agent* summarizes what the retrieved chunks say that's
+     relevant to the question.
+   - *Analysis Agent* drafts an answer using only that summary.
+   - *Review Agent* checks the draft against the retrieved content,
+     trims unsupported claims, and returns the final answer.
+4. The final answer and its source chunks are returned to the UI.
+
+## Notes / possible extensions
+
+- Swap `Ollama` for any other LangChain-supported LLM by editing `agents.py`.
+- Add support for `.docx` / `.txt` uploads by extending `utils.py`.
+- Add a `doc_id` filter to `/ask` to scope questions to one uploaded file.
+- Add authentication and per-user Pinecone namespaces for multi-user use.

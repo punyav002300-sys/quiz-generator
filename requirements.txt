@@ -1,5 +1,9 @@
-flask==3.0.3
-langchain==0.2.16
-langchain-community==0.2.16
-faiss-cpu==1.8.0
-pypdf==4.3.1
+flask
+python-dotenv
+crewai
+langchain-community
+ollama
+pinecone
+sentence-transformers
+pypdf
+werkzeug
